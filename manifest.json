@@ -1,6 +1,6 @@
 {
-  "name": "Consulta de distribuidores",
-  "short_name": "Consulta",
+  "name": "Sujetos de control",
+  "short_name": "Sujetos de control",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",

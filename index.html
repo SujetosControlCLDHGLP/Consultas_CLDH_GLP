@@ -1,0 +1,583 @@
+<!DOCTYPE html>
+<html lang="es">
+<head> 
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#1a73e8">
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" href="icon-192.png">
+  <link rel="apple-touch-icon" href="icon-192.png">
+  <title>Consulta de distribuidores</title>
+  <style> 
+    * { box-sizing: border-box; }
+    body { font-family: Arial, sans-serif; background: #f2f4f7; margin: 0; padding: 16px; color: #222; }
+    .card { max-width: 480px; margin: 0 auto; background: #fff; border-radius: 12px; padding: 20px; box-shadow: 0 2px 8px rgba(0,0,0,.1); }
+    h2 { margin: 0 0 4px; font-size: 20px; }
+    .sub { color: #555; font-size: 15px; margin: 8px 0 0; }
+    label { display: block; margin: 12px 0 4px; font-size: 14px; color: #444; }
+    input, button { width: 100%; padding: 12px; font-size: 16px; border: 1px solid #ccc; border-radius: 8px; }
+    button { background: #1a73e8; color: #fff; border: none; margin-top: 12px; cursor: pointer; }
+    button:disabled { background: #9bbcf0; }
+    button.sec { background: #e8eaed; color: #333; }
+    button.op { background: #eef4ff; color: #174ea6; border: 1px solid #c9dcfb; text-align: left; padding: 14px; font-weight: bold; }
+    button.op small { display: block; color: #556; font-size: 13px; margin-top: 2px; font-weight: normal; }
+    button:focus-visible, input:focus-visible, summary:focus-visible, a:focus-visible { outline: 3px solid #f5a623; outline-offset: 2px; }
+    .ruta { font-size: 14px; color: #555; margin: 8px 0 0; }
+    .ruta b { color: #174ea6; }
+    .msg { margin-top: 16px; padding: 12px; border-radius: 8px; font-size: 15px; }
+    .ok { background: #e6f4ea; color: #0d652d; }
+    .error { background: #fce8e6; color: #a50e0e; }
+    .warn { background: #fff4e5; color: #8a4b00; }
+    .hidden { display: none; }
+    #estado { font-size: 13px; margin-bottom: 8px; color: #444; }
+    .res { margin-top: 12px; border: 1px solid #dde3ea; border-radius: 10px; overflow: hidden; }
+    .res summary { padding: 12px; cursor: pointer; font-weight: bold; background: #f8fafc; }
+    .res summary span { display: block; font-weight: normal; font-size: 13px; color: #555; margin-top: 2px; }
+    .res dl { margin: 0; padding: 4px 12px 12px; }
+    .res dt { font-size: 12px; color: #667; margin-top: 10px; }
+    .res dd { margin: 2px 0 0; font-size: 15px; word-break: break-word; }
+    .res a { color: #1a73e8; }
+    .mapa { display: inline-block; margin: 8px 12px 12px; padding: 8px 12px; background: #e8f0fe; border-radius: 8px; text-decoration: none; color: #174ea6; font-size: 14px; }
+    .conteo { margin-top: 16px; font-size: 14px; color: #555; }
+  </style>
+</head>
+<body>
+<div class="card">
+  <h2>Consulta de distribuidores</h2>
+  <div id="estado"></div>
+
+  <!-- Paso 1: ciudad -->
+  <div id="pInicio">
+    <p class="sub">¿Qué tipo de consulta desea hacer?</p>
+    <button class="op" data-grupo="glp">GLP<small id="cnt-glp"></small></button>
+    <button class="op" data-grupo="cldh">CLDH<small id="cnt-cldh"></small></button>
+    <button class="sec" id="btnActualizar">Actualizar datos</button>
+  </div>
+
+  <!-- Paso 2: tipo de consulta -->
+  <div id="pTipo" class="hidden">
+    <p class="ruta" id="rutaTipo"></p>
+    <p class="sub">¿Cómo desea consultar?</p>
+    <button class="op" data-tipo="cedula">RUC<small>Escriba el numero de RUC.</small></button>
+    <button class="op" data-tipo="codigo">Código<small>Código de registro o código del depósito.</small></button>
+    <button class="op" data-tipo="nombre">Nombre<small>Nombre del distribuidor o propietario.</small></button>
+    <button class="sec" id="btnInicio1">Volver al inicio</button>
+  </div>
+
+  <!-- Paso 3: búsqueda y resultados -->
+  <div id="pBuscar" class="hidden">
+    <p class="ruta" id="rutaBuscar"></p>
+    <label for="q" id="lblQ"></label>
+    <input id="q" type="text" autocomplete="off">
+    <button id="btnBuscar">Consultar</button>
+    <button class="sec" id="btnVolverTipo">Cambiar tipo de consulta</button>
+    <button class="sec" id="btnInicio2">Volver al inicio</button>
+  </div>
+
+  <div id="msg" class="msg hidden"></div>
+  <div id="conteo" class="conteo hidden"></div>
+  <div id="resultados"></div>
+  <div id="pie" class="hidden"><button class="sec" id="btnInicio3">Volver al inicio y hacer otra consulta</button></div>
+</div>
+
+<script>
+  // Pegue aquí la URL de la implementación de Apps Script (termina en /exec).
+  var API = 'https://script.google.com/macros/s/AKfycbwi-1s_ddEcj6rDFDGsFWDvgz9em5FtWw8S9H-3WRWv7qS4bXRrn4FlGeDt19cFUuHZ/exec';
+
+
+  var MAX_RESULTADOS = 30;
+  var MIN_CARACTERES = { cedula: 4, codigo: 3, nombre: 3 };
+
+  // Columnas donde se busca en cada ciudad (se comparan sin tildes ni mayúsculas).
+  // "ocultar": columnas que NO se muestran en el resultado (coincide si el título de la columna contiene ese texto).
+  var CIUDADES = {
+    CLDH_LOJA: {
+      nombre: 'CLDH_LOJA', titulo: 'NOMBRE C/D', mapa: ['COORDENADAS'],
+      ocultar: ['TELEFONO', 'CORREO', 'EMAIL'],
+      cedula: ['RUC'], codigo: ['CÓDIGO DE REGISTRO'],
+      buscaNombre: ['NOMBRE C/D', 'PROPIETARIO', 'REPRESENTANTE LEGAL']
+    },
+    CLDH_ZAMORA: {
+      nombre: 'CLDHZAMORA', titulo: 'NOMBRE C/D', mapa: ['COORDENADAS'],
+      ocultar: ['TELEFONO', 'CORREO', 'EMAIL'],
+      cedula: ['RUC'], codigo: ['CÓDIGO DE REGISTRO'],
+      buscaNombre: ['NOMBRE C/D', 'PROPIETARIO', 'REPRESENTANTE LEGAL']
+    },
+    GLP: {
+  nombre: 'GLP',
+  titulo: 'DISTRIBUIDOR',
+  mapa: ['LATITUD X', 'LONGITUD Y'],
+  ocultar: [
+    'CODIGO EXTERNO',
+    'LATITUD X',
+    'LONGITUD Y',
+    'FECHA CREACION',
+    'PROPIETARIO ANTERIOR',
+    'FECHA DE CAMBIO',
+    'ARTICULO 43'
+  ],
+  cedula: ['RUC'],
+  codigo: ['CÓDIGO EXTERNO', 'CÓDIGO ARCERNNR', 'CODIGO VINCULADO'],
+  buscaNombre: ['DISTRIBUIDOR', 'NOMBRE CENTRO ACOPIO']
+}
+  };
+
+  // Tipos de consulta: GLP = hoja GLP; CLDH = hojas Loja y Zamora juntas.
+  var GRUPOS = {
+    glp:  { nombre: 'GLP',  hojas: ['GLP'] },
+    cldh: { nombre: 'CLDH', hojas: ['CLDH_LOJA', 'CLDH_ZAMORA'] }
+  };
+
+  var TIPOS = {
+    cedula: { nombre: 'Cédula o RUC', etiqueta: 'Número de cédula o RUC', modo: 'numeric', ph: 'Ej. 1100000000' },
+    codigo: { nombre: 'Código', etiqueta: 'Código', modo: 'text', ph: 'Escriba el código' },
+    nombre: { nombre: 'Nombre', etiqueta: 'Nombre del distribuidor o propietario', modo: 'text', ph: 'Ej. Juan Pérez' }
+  };
+
+  var DATOS = null;          // datos descargados (guardados en IndexedDB)
+  var PREP = {};             // índices de columnas y textos preparados por ciudad
+  var grupo = '', tipo = '', sincronizando = false;
+
+  function $(id) { return document.getElementById(id); }
+
+  // ---------- Almacenamiento local (IndexedDB) ----------
+  function abrirDB() {
+    return new Promise(function (res, rej) {
+      var r = indexedDB.open('consulta-distribuidores', 1);
+      r.onupgradeneeded = function () { r.result.createObjectStore('kv'); };
+      r.onsuccess = function () { res(r.result); };
+      r.onerror = function () { rej(r.error); };
+    });
+  }
+  function idbGet(k) {
+    return abrirDB().then(function (db) {
+      return new Promise(function (res, rej) {
+        var q = db.transaction('kv', 'readonly').objectStore('kv').get(k);
+        q.onsuccess = function () { res(q.result); };
+        q.onerror = function () { rej(q.error); };
+      });
+    });
+  }
+  function idbSet(k, v) {
+    return abrirDB().then(function (db) {
+      return new Promise(function (res, rej) {
+        var tx = db.transaction('kv', 'readwrite');
+        tx.objectStore('kv').put(v, k);
+        tx.oncomplete = function () { res(); };
+        tx.onerror = function () { rej(tx.error); };
+      });
+    });
+  }
+
+  // ---------- Mensajes y navegación ----------
+  function mostrar(t, clase) { var m = $('msg'); m.textContent = t; m.className = 'msg ' + clase; }
+  function ocultarMsg() { $('msg').className = 'msg hidden'; }
+  function limpiarResultados() {
+    $('resultados').textContent = '';
+    $('conteo').className = 'conteo hidden';
+    $('pie').className = 'hidden';
+  }
+
+  function ir(paso) {
+    ['pInicio', 'pTipo', 'pBuscar'].forEach(function (p) {
+      $(p).classList.toggle('hidden', p !== paso);
+    });
+    ocultarMsg();
+    limpiarResultados();
+    window.scrollTo(0, 0);
+  }
+
+  function pintarEstado() {
+    var t = navigator.onLine ? 'En línea' : 'Sin conexión';
+    if (DATOS) t += ' · Datos del ' + new Date(DATOS.ts).toLocaleString();
+    else t += ' · Sin datos guardados';
+    if (sincronizando) t += ' · Actualizando...';
+    $('estado').textContent = t + ' · ';
+  }
+
+  function pintarInicio() {
+    Object.keys(GRUPOS).forEach(function (g) {
+      var total = 0, hay = false;
+      GRUPOS[g].hojas.forEach(function (k) {
+        var h = DATOS && DATOS.hojas && DATOS.hojas[k];
+        if (h && h.filas) { total += h.filas.length; hay = true; }
+      });
+      $('cnt-' + g).textContent = hay ? total + ' registros' : '';
+    });
+  }
+
+  // ---------- Sincronización de datos ----------
+  function sincronizar(manual) {
+    if (sincronizando) return;
+    if (!navigator.onLine) { if (manual) mostrar('Sin conexión. Se usan los datos guardados.', 'warn'); return; }
+    sincronizando = true;
+    pintarEstado();
+    if (manual) mostrar('Actualizando datos...', 'warn');
+
+    fetch(API + (API.indexOf('?') === -1 ? '?' : '&') + 't=' + Date.now())
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (!d || !d.hojas) throw new Error('Respuesta no válida');
+        DATOS = d; PREP = {};
+        return idbSet('datos', d).then(function () {
+          if (manual) mostrar('Datos actualizados.', 'ok');
+        });
+      })
+      .catch(function () {
+        if (manual) mostrar('No se pudo actualizar. Se siguen usando los datos guardados.', 'warn');
+      })
+      .then(function () { sincronizando = false; pintarEstado(); pintarInicio(); });
+  }
+
+  // ---------- Preparación de la búsqueda ----------
+  function norm(v) {
+    return String(v === null || v === undefined ? '' : v)
+      .toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+      .replace(/\s+/g, ' ').trim();
+  }
+
+  // Si la hoja guardó el RUC como número y se perdió el cero inicial, se lo devuelve.
+  function digitos(v) {
+    var d = String(v === null || v === undefined ? '' : v).replace(/\D/g, '');
+    if (d.length === 12 || d.length === 9) d = '0' + d;
+    return d;
+  }
+
+  function preparar(clave) {
+    if (PREP[clave]) return PREP[clave];
+    var h = DATOS && DATOS.hojas && DATOS.hojas[clave];
+    if (!h || h.error || !h.encabezados) return null;
+
+    var enc = h.encabezados.map(norm);
+    function idx(nombres) {
+      var r = [];
+      nombres.forEach(function (n) { var i = enc.indexOf(norm(n)); if (i !== -1) r.push(i); });
+      return r;
+    }
+    var cfg = CIUDADES[clave];
+    var mapaCols = idx(cfg.mapa);
+    // Si la columna siguiente no tiene título (celda combinada, como en Zamora), también es del mapa.
+    mapaCols.slice().forEach(function (i) {
+      if (i + 1 < enc.length && enc[i + 1] === '' && mapaCols.indexOf(i + 1) === -1) mapaCols.push(i + 1);
+    });
+    var ocultas = {};
+    h.encabezados.forEach(function (t, i) {
+      var tn = enc[i];
+      cfg.ocultar.forEach(function (o) { if (tn.indexOf(norm(o)) !== -1) ocultas[i] = true; });
+    });
+    PREP[clave] = {
+      ocultas: ocultas,
+      cols: { cedula: idx(cfg.cedula), codigo: idx(cfg.codigo), nombre: idx(cfg.buscaNombre) },
+      titulo: idx([cfg.titulo])[0],
+      mapa: mapaCols,
+      cache: {}
+    };
+    return PREP[clave];
+  }
+
+  // Texto de búsqueda de cada fila, calculado una sola vez por ciudad y tipo.
+  function textosDe(clave, t) {
+    var P = PREP[clave];
+    if (P.cache[t]) return P.cache[t];
+    var filas = DATOS.hojas[clave].filas;
+    var cols = P.cols[t];
+    P.cache[t] = filas.map(function (f) {
+      if (t === 'cedula') return cols.map(function (c) { return digitos(f[c]); });
+      return cols.map(function (c) { return norm(f[c]); }).join(' | ');
+    });
+    return P.cache[t];
+  }
+
+  // ---------- Coordenadas ----------
+  // Acepta: decimales ("-4.305205, -79.555071"), grados/minutos/segundos (78°37'21.5"W),
+  // en una sola celda o repartidas en dos columnas, y como respaldo coordenadas UTM.
+  function aNum(t) { return parseFloat(String(t).replace(',', '.')); }
+
+  function extraer(texto) {
+    var t = String(texto === null || texto === undefined ? '' : texto);
+    var res = [], m;
+    if (t.indexOf('°') !== -1 || t.indexOf('º') !== -1) {
+      var dms = /([NSEWO])?\s*(-?\d{1,3}(?:[.,]\d+)?)\s*[°º]\s*(?:(\d{1,2}(?:[.,]\d+)?)\s*['’′]\s*)?(?:(\d{1,2}(?:[.,]\d+)?)\s*(?:"|”|″|''|’’|′′)\s*)?([NSEWO])?/gi;
+      while ((m = dms.exec(t)) !== null) {
+        var neg = m[2].charAt(0) === '-';
+        var v = Math.abs(aNum(m[2])) + (m[3] ? aNum(m[3]) / 60 : 0) + (m[4] ? aNum(m[4]) / 3600 : 0);
+        var L = (m[1] || m[5] || '').toUpperCase();
+        if (L === 'S' || L === 'W' || L === 'O' || neg) v = -v;
+        res.push({ v: v, h: (L === 'N' || L === 'S') ? 'lat' : (L ? 'lng' : '') });
+      }
+      return res;
+    }
+    var dec = /(^|[^\d.])([NSEWO])?\s*(-?\d{1,3}[.,]\d+)\s*([NSEWO])?/gi;
+    while ((m = dec.exec(t)) !== null) {
+      var L2 = (m[2] || m[4] || '').toUpperCase();
+      var v2 = aNum(m[3]);
+      if ((L2 === 'S' || L2 === 'W' || L2 === 'O') && v2 > 0) v2 = -v2;
+      res.push({ v: v2, h: (L2 === 'N' || L2 === 'S') ? 'lat' : (L2 ? 'lng' : '') });
+    }
+    return res;
+  }
+
+  function finalizar(lat, lng) {
+    if (!isFinite(lat) || !isFinite(lng) || (lat === 0 && lng === 0)) return '';
+    // GLP, Loja y Zamora están al sur y al oeste: si el signo se perdió, se corrige.
+    if (lng > 0 && lng >= 74 && lng <= 82) lng = -lng;
+    if (lat > 1.5 && lat <= 5.5) lat = -lat;
+    if (Math.abs(lat) > 90 || Math.abs(lng) > 180) return '';
+    return lat + ',' + lng;
+  }
+
+  function parPorValores(a, b) {          // a y b: {v, h}
+    var lat, lng;
+    if (a.h === 'lat' && b.h !== 'lat') { lat = a.v; lng = b.v; }
+    else if (a.h === 'lng' && b.h !== 'lng') { lng = a.v; lat = b.v; }
+    else if (b.h === 'lat') { lat = b.v; lng = a.v; }
+    else if (b.h === 'lng') { lng = b.v; lat = a.v; }
+    else if (Math.abs(a.v) >= 74 && Math.abs(a.v) <= 82 && Math.abs(b.v) <= 5.5) { lng = a.v; lat = b.v; }
+    else { lat = a.v; lng = b.v; }
+    return finalizar(lat, lng);
+  }
+
+  // Coordenadas UTM (zona 17 Sur, la de GLP, Loja y Zamora) -> latitud/longitud.
+  function utmALatLng(E, N) {
+    var a = 6378137, f = 1 / 298.257223563, k0 = 0.9996, e2 = f * (2 - f), ep2 = e2 / (1 - e2);
+    var x = E - 500000, y = N - 10000000, M = y / k0;
+    var mu = M / (a * (1 - e2 / 4 - 3 * e2 * e2 / 64 - 5 * e2 * e2 * e2 / 256));
+    var e1 = (1 - Math.sqrt(1 - e2)) / (1 + Math.sqrt(1 - e2));
+    var p1 = mu + (3 * e1 / 2 - 27 * Math.pow(e1, 3) / 32) * Math.sin(2 * mu)
+      + (21 * e1 * e1 / 16 - 55 * Math.pow(e1, 4) / 32) * Math.sin(4 * mu)
+      + (151 * Math.pow(e1, 3) / 96) * Math.sin(6 * mu)
+      + (1097 * Math.pow(e1, 4) / 512) * Math.sin(8 * mu);
+    var s1 = Math.sin(p1), c1 = Math.cos(p1), t1 = Math.tan(p1);
+    var N1 = a / Math.sqrt(1 - e2 * s1 * s1), T1 = t1 * t1, C1 = ep2 * c1 * c1;
+    var R1 = a * (1 - e2) / Math.pow(1 - e2 * s1 * s1, 1.5), D = x / (N1 * k0);
+    var lat = p1 - (N1 * t1 / R1) * (D * D / 2 - (5 + 3 * T1 + 10 * C1 - 4 * C1 * C1 - 9 * ep2) * Math.pow(D, 4) / 24
+      + (61 + 90 * T1 + 298 * C1 + 45 * T1 * T1 - 252 * ep2 - 3 * C1 * C1) * Math.pow(D, 6) / 720);
+    var lon = (D - (1 + 2 * T1 + C1) * Math.pow(D, 3) / 6
+      + (5 - 2 * C1 + 28 * T1 - 3 * C1 * C1 + 8 * ep2 + 24 * T1 * T1) * Math.pow(D, 5) / 120) / c1;
+    return finalizar(lat * 180 / Math.PI, -81 + lon * 180 / Math.PI);
+  }
+
+  function buscarUTM(fila) {
+    var E = NaN, N = NaN;
+    fila.forEach(function (c) {
+      var t = String(c).replace(/\s/g, '').replace(',', '.');
+      if (!/^\d{5,8}(\.\d+)?$/.test(t)) return;
+      var n = parseFloat(t);
+      if (isNaN(E) && n >= 100000 && n <= 900000) E = n;
+      else if (isNaN(N) && n >= 9000000 && n <= 10000000) N = n;
+    });
+    return (isNaN(E) || isNaN(N)) ? '' : utmALatLng(E, N);
+  }
+
+  function coordenadas(fila, colsMapa) {
+    // 1) Columnas configuradas (una celda con el par, o dos columnas)
+    var vals = [];
+    colsMapa.forEach(function (c) { vals = vals.concat(extraer(fila[c])); });
+    if (vals.length >= 2) {
+      var r = parPorValores(vals[0], vals[1]);
+      if (r) return r;
+    }
+
+    // 2) Respaldo: cualquier celda de la fila (aunque la columna esté oculta o tenga otro nombre)
+    var lat = NaN, lng = NaN;
+    for (var i = 0; i < fila.length; i++) {
+      extraer(fila[i]).forEach(function (o) {
+        var ab = Math.abs(o.v);
+        if (isNaN(lat) && o.h !== 'lng' && ab <= 5.5) lat = o.v;
+        else if (isNaN(lng) && o.h !== 'lat' && ab >= 74 && ab <= 82) lng = o.v;
+      });
+    }
+    var r2 = finalizar(lat, lng);
+    if (r2) return r2;
+
+    // 3) Último recurso: coordenadas UTM
+    return buscarUTM(fila);
+  }
+
+  // ---------- Consulta ----------
+  function consultar() {
+    ocultarMsg();
+    limpiarResultados();
+
+    var q = $('q').value.trim();
+    if (!q) return mostrar('Escriba algo para consultar.', 'error');
+
+    var qDig = q.replace(/\D/g, '');
+    var qNorm = norm(q);
+    var largo = tipo === 'cedula' ? qDig.length : qNorm.length;
+    if (largo < MIN_CARACTERES[tipo]) {
+      return mostrar('Escriba al menos ' + MIN_CARACTERES[tipo] + (tipo === 'cedula' ? ' dígitos.' : ' caracteres.'), 'warn');
+    }
+
+    var G = GRUPOS[grupo];
+    var palabras = qNorm.split(' ');
+    var indices = [], sinDatos = 0, sinCols = 0;
+
+    G.hojas.forEach(function (clave) {
+      var P = preparar(clave);
+      if (!P) { sinDatos++; return; }
+      if (!P.cols[tipo].length) { sinCols++; return; }
+      var textos = textosDe(clave, tipo);
+      for (var i = 0; i < textos.length; i++) {
+        var ok;
+        if (tipo === 'cedula') {
+          ok = textos[i].some(function (d) { return d.indexOf(qDig) === 0; });
+        } else if (tipo === 'codigo') {
+          ok = textos[i].indexOf(qNorm) !== -1;
+        } else {
+          ok = palabras.every(function (p) { return textos[i].indexOf(p) !== -1; });
+        }
+        if (ok) indices.push({ clave: clave, n: i });
+      }
+    });
+
+    if (sinDatos + sinCols === G.hojas.length) {
+      return sinDatos
+        ? mostrar('No hay datos de ' + G.nombre + '. Conéctese a internet para descargarlos.', 'error')
+        : mostrar('No se encontraron las columnas de búsqueda en la hoja de ' + G.nombre + '.', 'error');
+    }
+
+    pintarResultados(indices);
+  }
+
+  // ---------- Resultados (se construyen con DOM para no insertar HTML de la hoja) ----------
+  function el(tag, texto, clase) {
+    var e = document.createElement(tag);
+    if (texto !== undefined) e.textContent = texto;
+    if (clase) e.className = clase;
+    return e;
+  }
+
+  function valorConEnlace(titulo, valor) {
+    var t = titulo.toUpperCase();
+    var dd = el('dd');
+    if (t.indexOf('TEL') !== -1) {
+      var num = valor.replace(/[^\d+]/g, '');
+      if (num.length >= 7) { var a = el('a', valor); a.href = 'tel:' + num; dd.appendChild(a); return dd; }
+    }
+    if ((t.indexOf('EMAIL') !== -1 || t.indexOf('CORREO') !== -1) && valor.indexOf('@') !== -1) {
+      var m = el('a', valor); m.href = 'mailto:' + valor; dd.appendChild(m); return dd;
+    }
+    dd.textContent = valor;
+    return dd;
+  }
+
+  function pintarResultados(indices) {
+    var cont = $('resultados'), c = $('conteo');
+    cont.textContent = '';
+    $('pie').className = '';
+
+    if (!indices.length) {
+      c.textContent = 'No se encontraron resultados. Revise lo escrito o pruebe otro tipo de consulta.';
+      c.className = 'conteo';
+      return;
+    }
+
+    var mostrados = indices.slice(0, MAX_RESULTADOS);
+    c.textContent = indices.length > mostrados.length
+      ? 'Se encontraron ' + indices.length + ' resultados. Se muestran los primeros ' + mostrados.length + '; escriba más datos para afinar.'
+      : (indices.length === 1 ? 'Se encontró 1 resultado.' : 'Se encontraron ' + indices.length + ' resultados.');
+    c.className = 'conteo';
+
+    mostrados.forEach(function (it) {
+      var h = DATOS.hojas[it.clave], P = PREP[it.clave];
+      var fila = h.filas[it.n];
+      var caja = el('div', undefined, 'res');
+      var det = el('details');
+      if (mostrados.length === 1) det.open = true;
+
+      var titulo = P.titulo !== undefined ? fila[P.titulo] : '';
+      var ruc = '';
+      h.encabezados.forEach(function (enc, i) { if (norm(enc) === 'RUC') ruc = fila[i]; });
+
+      var sum = el('summary', titulo || '(sin nombre)');
+      var sub = [];
+      if (grupo === 'cldh') sub.push(CIUDADES[it.clave].nombre);
+      if (ruc) sub.push('RUC ' + ruc);
+      if (sub.length) sum.appendChild(el('span', sub.join(' · ')));
+      det.appendChild(sum);
+
+      var dl = el('dl');
+      h.encabezados.forEach(function (enc, i) {
+        if (enc !== '' && fila[i] !== '' && !P.ocultas[i]) {
+          dl.appendChild(el('dt', enc));
+          dl.appendChild(valorConEnlace(enc, fila[i]));
+        }
+      });
+      det.appendChild(dl);
+      caja.appendChild(det);
+
+      // Botón del mapa siempre visible, aunque el resultado esté cerrado.
+      var mapa = coordenadas(fila, P.mapa);
+      if (mapa) {
+        var a = el('a', 'Ver en el mapa', 'mapa');
+        a.href = 'https://www.google.com/maps?q=' + encodeURIComponent(mapa);
+        a.target = '_blank'; a.rel = 'noopener';
+        caja.appendChild(a);
+      }
+      cont.appendChild(caja);
+    });
+  }
+
+  // ---------- Eventos ----------
+  Array.prototype.forEach.call(document.querySelectorAll('[data-grupo]'), function (b) {
+    b.onclick = function () {
+      if (!DATOS) return mostrar('Sin datos guardados. Conéctese a internet al menos una vez.', 'error');
+      grupo = b.getAttribute('data-grupo');
+      $('rutaTipo').innerHTML = 'Consulta: <b></b>';
+      $('rutaTipo').querySelector('b').textContent = GRUPOS[grupo].nombre;
+      ir('pTipo');
+    };
+  });
+
+  Array.prototype.forEach.call(document.querySelectorAll('[data-tipo]'), function (b) {
+    b.onclick = function () {
+      tipo = b.getAttribute('data-tipo');
+      var t = TIPOS[tipo];
+      $('rutaBuscar').innerHTML = 'Consulta: <b></b> · Buscar por: <b></b>';
+      var bs = $('rutaBuscar').querySelectorAll('b');
+      bs[0].textContent = GRUPOS[grupo].nombre;
+      bs[1].textContent = t.nombre;
+      $('lblQ').textContent = t.etiqueta;
+      $('q').value = '';
+      $('q').setAttribute('inputmode', t.modo);
+      $('q').placeholder = t.ph;
+      ir('pBuscar');
+      $('q').focus();
+    };
+  });
+
+  function alInicio() { grupo = ''; tipo = ''; ir('pInicio'); }
+  $('btnInicio1').onclick = alInicio;
+  $('btnInicio2').onclick = alInicio;
+  $('btnInicio3').onclick = alInicio;
+  $('btnVolverTipo').onclick = function () { ir('pTipo'); };
+  $('btnBuscar').onclick = consultar;
+  $('btnActualizar').onclick = function () { sincronizar(true); };
+  $('q').addEventListener('keydown', function (e) { if (e.key === 'Enter') consultar(); });
+
+  window.addEventListener('online', function () { pintarEstado(); sincronizar(false); });
+  window.addEventListener('offline', pintarEstado);
+  setInterval(function () { if (navigator.onLine) sincronizar(false); }, 300000);
+  if ('serviceWorker' in navigator) {
+    // Cuando se instala una versión nueva, la página se recarga sola una vez.
+    var recargado = false;
+    navigator.serviceWorker.addEventListener('controllerchange', function () {
+      if (recargado) return; recargado = true; location.reload();
+    });
+    navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' })
+      .then(function (reg) { reg.update(); }).catch(function () {});
+  }
+
+  // ---------- Inicio ----------
+  idbGet('datos')
+    .then(function (d) { if (d && d.hojas) DATOS = d; })
+    .catch(function () {})
+    .then(function () {
+      pintarEstado();
+      pintarInicio();
+      sincronizar(false);
+    });
+</script>
+</body>
+</html>
